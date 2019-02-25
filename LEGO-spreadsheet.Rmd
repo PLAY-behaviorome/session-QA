@@ -1,5 +1,5 @@
 ---
-title: "LEGO-spreadsheet-QA"
+title: "LEGO-spreadsheet"
 author: "Rick O. Gilmore"
 date: "`r Sys.time()`"
 output: 
@@ -152,9 +152,9 @@ release_sum <- xtabs(formula = ~ participant_ID + session_release, lego_demog_ra
 knitr::kable(release_sum)
 ```
 
-Participants 6, 8, 14, 21, 23, 29, 30, and 35 have inconsistent `session_release` levels.
+Participants 6, 8, 14, 21, 23, 29, 30, and 35 have inconsistent `session_release` levels across the visits.
 
-### Number of uploaded sessions?
+### Number of uploaded sessions per participant?
 
 ```{r}
 lego_demog_raw %>%
@@ -163,7 +163,7 @@ lego_demog_raw %>%
   knitr::kable(.)
 ```
 
-The following participants have less than two sessions:
+The following participants have *fewer* than two sessions:
 
 ```{r}
 lego_demog_raw %>%
@@ -180,5 +180,76 @@ lego_demog_raw %>%
   group_by(., participant_ID) %>%
   summarize(., n_sessions = n()) %>%
   filter(n_sessions > 2) %>%
+  knitr::kable(.)
+```
+
+## `participant_birthdate`
+
+### Valid dates?
+
+```{r}
+if (sum(is.na(lubridate::ymd(lego_demog_raw$participant_birthdate)))) {
+  message("Some participant_birthdate values are invalid")
+  is.na(lubridate::ymd(lego_demog_raw$participant_birthdate))
+} else {
+  message("All session_date values are valid.")
+}
+```
+
+### Dates give reasonable ages?
+
+```{r}
+birthdate <- lubridate::ymd(lego_demog_raw$participant_birthdate)
+testdate <- lubridate::ymd(lego_demog_raw$session_date)
+age_days <- testdate - birthdate
+
+lego_demog_raw$age_days <- age_days
+lego_demog_raw %>%
+  ggplot(.) +
+  aes(x = age_days, fill = group_name) +
+  geom_histogram()
+```
+
+The histogram suggest that there is some mislabeling in the `group_name` variable given that there is a 13-mo-old crawler with an age ~700 days and a 23-mo-old with an age less than 600 days.
+
+```{r}
+lego_demog_raw %>%
+  filter(., group_name == '13 mos Crawler', age_days > 500) %>%
+  select(., participant_ID, session_name, session_id)
+```
+
+```{r}
+lego_demog_raw %>%
+  filter(., group_name == '23 mos', age_days < 600) %>%
+  select(., participant_ID, session_name, session_id)
+```
+
+## `particpant_gender`
+
+### Valid ('Female', 'Male') entry for all sessions?
+
+```{r}
+if (sum(!(lego_demog_raw$participant_gender %in% c('Female', 'Male')))) {
+  message("Some participant_gender values are invalid.")
+} else {
+  message("All participant_gender values are valid.")
+}
+```
+
+### Do `participant_gender` values match across sessions?
+
+Generate variable for visit from `session_name` and while we're there, grab the session number from `session_name`.
+
+```{r}
+lego_demog_raw <- lego_demog_raw %>%
+  mutate(., visit = stringr::str_extract(session_name, 
+                                         "Visit[12]+"),
+         sub_number = stringr::str_extract(session_name, 
+                                         "S#[0-9]+"))
+lego_demog_raw %>%
+  spread(., visit, participant_gender) %>%
+  arrange(., participant_ID) %>%
+  group_by(., participant_ID) %>%
+  select(., participant_ID, sub_number, Visit1, Visit2) %>%
   knitr::kable(.)
 ```
