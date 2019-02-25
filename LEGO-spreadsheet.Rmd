@@ -1,0 +1,184 @@
+---
+title: "LEGO-spreadsheet-QA"
+author: "Rick O. Gilmore"
+date: "`r Sys.time()`"
+output: 
+  html_document:
+    toc: true
+    toc_levels: 3
+    toc_float: true
+    number_sections: true
+    code_folding: hide
+params: 
+  db_account: rogilmore@psu.edu
+---
+
+# Purpose
+
+This document summarizes the quality assurance (QA) process conducted on the LEGO project session/participant metadata spreadsheet.
+The data are stored and shared at <https://nyu.databrary.org/volume/563>.
+
+# Set-up
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load databraryapi package from github.com/PLAY-behaviorome/databraryapi
+if (!require(databraryapi)) {
+  devtools::install_github("PLAY-behaviorome/databraryapi")
+  library(databraryapi)
+}
+
+# Load other libraries
+library(tidyverse)
+library(ggplot2)
+
+## Variables for this particular volume and session.
+play_vol_id <- 563
+#survey_data_session_name = "Parent report data"
+```
+
+The Databrary volume is 563.
+
+We need to log in to Databrary to have access to these data.
+If you have logged-in before from the machine you are running this report, then you will be prompted to enter your Databrary ID (email address).
+If you have *not* logged-in before, you will be prompted to enter your Databrary ID (email address) and your Databrary password.
+
+You may wish to knit (update) this report from the RStudio command line using this command: `rmarkdown::render('LEGO-spreadsheet.Rmd', params=list(db_account="youremail@yourdomain.com"))`, where `youremail@yourdomain.com` is your Databrary account ID.
+
+```{r login}
+databraryapi::login_db(params$db_account)
+```
+
+# Gather data
+
+Participant demographic data are stored in the Databrary spreadsheet.
+
+## Participant demographics
+
+We'll first gather the participant demographic data stored in the Databrary spreadsheet.
+
+```{r gather-participant-demographic-data}
+lego_demog_raw <- databraryapi::download_session_csv(vol_id = play_vol_id)
+
+if (is.null(lego_demog_raw)) {
+  stop("No data downloaded from Databrary. Are you logged in?")
+}
+
+```
+
+### Structure of demographic data file
+
+```{r}
+str(lego_demog_raw)
+```
+
+Let's select all the variables and change the periods to underscores in the variable names.
+
+```{r}
+# Select relevant spreadsheet columns, filter those with actual session data, and rename variables to use underscores
+lego_demog_raw <- lego_demog_raw %>%
+  select(session_id,
+         session_name,
+         session_date,
+         session_release,
+         participant.ID,
+         participant.birthdate,
+         participant.gender,
+         participant.race, 
+         participant.ethnicity,
+         participant.disability, 
+         participant.language, 
+         group.name,
+         context.setting,
+         context.language,
+         context.country,
+         context.state) %>%
+  # filter(session_release %in% c('EXCERPTS', 'PRIVATE', 'SHARED')) %>%
+  rename(participant_ID = participant.ID,
+         participant_birthdate = participant.birthdate,
+         participant_gender = participant.gender,
+         participant_race = participant.race,
+         participant_ethnicity = participant.ethnicity,
+         participant_disability = participant.disability, 
+         participant_language = participant.language,
+         group_name = group.name,
+         context_setting = context.setting,
+         context_language = context.language,
+         context_country = context.country,
+         context.state = context.state)
+```
+
+# QA tests for each variable
+
+## `session_name`
+
+Are session name values consistent?
+Print sorted list to detect anomalies.
+
+```{r}
+lego_demog_raw %>%
+  select(., session_name) %>%
+  arrange(., session_name)
+```
+
+## `session_date`
+
+Are `session_date` values valid `YYYY-MM-DD` dates?
+Use `lubridate` package to see if dates import properly.
+
+```{r}
+if (sum(is.na(lubridate::ymd(lego_demog_raw$session_date)))) {
+  message("Some session_date values are invalid")
+  is.na(lubridate::ymd(lego_demog_raw$session_date))
+} else {
+  message("All session_date values are valid.")
+}
+```
+
+Are `session_date` dates reasonable?
+
+The earliest year is `r min(lubridate::year(lego_demog_raw$session_date))`.
+
+The most recent year is `r max(lubridate::year(lego_demog_raw$session_date))`.
+
+## `session_release`
+
+Are `session_release` values sensible?
+That is, are there 'consistent' permissions across the sessions or missing values?
+
+```{r}
+release_sum <- xtabs(formula = ~ participant_ID + session_release, lego_demog_raw)
+knitr::kable(release_sum)
+```
+
+Participants 6, 8, 14, 21, 23, 29, 30, and 35 have inconsistent `session_release` levels.
+
+### Number of uploaded sessions?
+
+```{r}
+lego_demog_raw %>%
+  group_by(., participant_ID) %>%
+  summarize(., n_sessions = n()) %>%
+  knitr::kable(.)
+```
+
+The following participants have less than two sessions:
+
+```{r}
+lego_demog_raw %>%
+  group_by(., participant_ID) %>%
+  summarize(., n_sessions = n()) %>%
+  filter(n_sessions < 2) %>%
+  knitr::kable(.)
+```
+
+The following participants have *more* than two sessions:
+
+```{r}
+lego_demog_raw %>%
+  group_by(., participant_ID) %>%
+  summarize(., n_sessions = n()) %>%
+  filter(n_sessions > 2) %>%
+  knitr::kable(.)
+```
